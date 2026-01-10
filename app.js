@@ -92,6 +92,8 @@ class LyricTimestampEditor {
                     this.uiController.updateLyricPreview(currentTime);
                     // 再生中の歌詞行を中央にスクロール
                     this.uiController.scrollToCurrentLyric(currentTime);
+                    // 再生時刻を更新
+                    this.uiController.updatePlaybackTime(currentTime);
                 }
                 
                 this.drawWaveform();
@@ -107,6 +109,8 @@ class LyricTimestampEditor {
                     this.uiController.updateLevelMeters();
                     // プレビュー表示をクリア
                     this.uiController.updateLyricPreview(null);
+                    // 再生時刻をクリア
+                    this.uiController.updatePlaybackTime(null);
                 }
             }
         };

@@ -704,6 +704,15 @@ header h1 {
     min-width: auto;
 }
 
+.playback-time {
+    font-weight: 600;
+    color: #667eea;
+    font-size: 13px;
+    font-family: monospace;
+    min-width: 80px;
+    text-align: right;
+}
+
 .range-duration {
     font-weight: 600;
     color: #333;

@@ -5,6 +5,79 @@ class LyricManager {
         this.nextId = 1;
         this.endTimeOffset = 0.01; // 終了時刻のオフセット（秒）
         this.onLyricsChange = null; // コールバック関数
+        this.history = []; // 操作履歴
+        this.historyIndex = -1; // 現在の履歴位置
+        this.maxHistorySize = 50; // 最大履歴数
+        
+        // 初期状態を履歴に保存
+        this.addToHistory();
+    }
+
+    // 状態のスナップショットを取得
+    createSnapshot() {
+        return {
+            lyrics: JSON.parse(JSON.stringify(this.lyrics)),
+            nextId: this.nextId
+        };
+    }
+
+    // 状態をスナップショットから復元
+    restoreSnapshot(snapshot) {
+        this.lyrics = JSON.parse(JSON.stringify(snapshot.lyrics));
+        this.nextId = snapshot.nextId;
+        if (this.onLyricsChange) {
+            this.onLyricsChange();
+        }
+    }
+
+    // 操作履歴に追加
+    addToHistory() {
+        const snapshot = this.createSnapshot();
+        
+        // 現在位置より後ろの履歴を削除（新しい操作をした場合）
+        if (this.historyIndex < this.history.length - 1) {
+            this.history = this.history.slice(0, this.historyIndex + 1);
+        }
+        
+        // 履歴に追加
+        this.history.push(snapshot);
+        
+        // 最大履歴数を超えた場合、古い履歴を削除
+        if (this.history.length > this.maxHistorySize) {
+            this.history.shift();
+        } else {
+            this.historyIndex++;
+        }
+    }
+
+    // Undo実行
+    undo() {
+        if (this.historyIndex <= 0) {
+            return false; // Undoできない
+        }
+        
+        this.historyIndex--;
+        const snapshot = this.history[this.historyIndex];
+        this.restoreSnapshot(snapshot);
+        return true;
+    }
+
+    // Redo実行（将来の拡張用）
+    redo() {
+        if (this.historyIndex >= this.history.length - 1) {
+            return false; // Redoできない
+        }
+        
+        this.historyIndex++;
+        const snapshot = this.history[this.historyIndex];
+        this.restoreSnapshot(snapshot);
+        return true;
+    }
+
+    // 履歴をクリア
+    clearHistory() {
+        this.history = [];
+        this.historyIndex = -1;
     }
 
     // 歌詞を追加
@@ -12,6 +85,9 @@ class LyricManager {
         if (text.trim() === '') {
             return null;
         }
+
+        // 操作前の状態を履歴に保存
+        this.addToHistory();
 
         const lyric = {
             id: this.nextId++,
@@ -36,6 +112,9 @@ class LyricManager {
         if (!Array.isArray(lyricsData)) {
             return 0;
         }
+
+        // 操作前の状態を履歴に保存
+        this.addToHistory();
 
         let addedCount = 0;
         for (const data of lyricsData) {
@@ -74,6 +153,21 @@ class LyricManager {
         const lyric = this.lyrics.find(l => l.id === id);
         if (!lyric) return false;
 
+        // 変更があるかチェック
+        let hasChange = false;
+        if (updates.startTime !== undefined && lyric.startTime !== updates.startTime) {
+            hasChange = true;
+        } else if (updates.text !== undefined && lyric.text !== updates.text.trim()) {
+            hasChange = true;
+        } else if (updates.endTime !== undefined && lyric.endTime !== updates.endTime) {
+            hasChange = true;
+        }
+
+        if (!hasChange) return false; // 変更がない場合は履歴に追加しない
+
+        // 操作前の状態を履歴に保存
+        this.addToHistory();
+
         if (updates.startTime !== undefined) {
             lyric.startTime = updates.startTime;
         }
@@ -98,6 +192,9 @@ class LyricManager {
     deleteLyric(id) {
         const index = this.lyrics.findIndex(l => l.id === id);
         if (index === -1) return false;
+
+        // 操作前の状態を履歴に保存
+        this.addToHistory();
 
         this.lyrics.splice(index, 1);
         this.updateEndTimes();
@@ -149,6 +246,9 @@ class LyricManager {
 
     // 歌詞をクリア
     clear() {
+        // 操作前の状態を履歴に保存
+        this.addToHistory();
+
         this.lyrics = [];
         if (this.onLyricsChange) {
             this.onLyricsChange();

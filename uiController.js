@@ -35,6 +35,7 @@ class UIController {
         this.lyricPreview = document.getElementById('lyric-preview');
         this.addModeBtn = document.getElementById('add-mode-btn');
         this.adjustModeBtn = document.getElementById('adjust-mode-btn');
+        this.playbackTimeDisplay = document.getElementById('playback-time');
         
         // ズームコントロール
         this.zoomInBtn = document.getElementById('zoom-in-btn');
@@ -192,8 +193,24 @@ class UIController {
                 this.closeLyricModal();
                 return;
             }
-            
+
+            // Ctrl+ZでUndo、Ctrl+Shift+ZでRedo（入力フィールド内以外）
             const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+                // 入力フィールドのフォーカス中でない場合のみUndo/Redo実行
+                if (!isInput || e.target.readOnly) {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                        // Ctrl+Shift+ZでRedo
+                        this.redo();
+        } else {
+                        // Ctrl+ZでUndo
+                        this.undo();
+                    }
+                    return;
+                }
+            }
+            
             if (isInput) {
                 return;
             }
@@ -778,8 +795,8 @@ class UIController {
         // 対応する行を取得
         const row = this.lyricsTbody.querySelector(`tr[data-lyric-id="${currentLyric.id}"]`);
         if (!row) {
-            return;
-        }
+                    return;
+                }
 
         // テーブルコンテナの高さとスクロール位置を取得
         const containerHeight = this.lyricsTableContainer.clientHeight;
@@ -835,6 +852,44 @@ class UIController {
         // モード名を表示
         const modeName = mode === 'add' ? '追加モード' : '調整モード';
         this.showStatus(`${modeName}に切り替えました`, 'info');
+    }
+
+    // Undo実行
+    undo() {
+        if (this.editor && this.editor.lyricManager) {
+            const success = this.editor.lyricManager.undo();
+            if (success) {
+                this.showStatus('操作を取り消しました', 'success');
+            } else {
+                this.showStatus('取り消す操作がありません', 'info');
+            }
+        }
+    }
+
+    // Redo実行
+    redo() {
+        if (this.editor && this.editor.lyricManager) {
+            const success = this.editor.lyricManager.redo();
+            if (success) {
+                this.showStatus('操作をやり直しました', 'success');
+            } else {
+                this.showStatus('やり直す操作がありません', 'info');
+            }
+        }
+    }
+
+    // 再生時刻を更新
+    updatePlaybackTime(currentTime) {
+        if (!this.playbackTimeDisplay) return;
+        
+        if (currentTime !== null && !isNaN(currentTime)) {
+            const minutes = Math.floor(currentTime / 60);
+            const seconds = currentTime % 60;
+            const formattedTime = `${minutes}:${seconds.toFixed(2).padStart(5, '0')}`;
+            this.playbackTimeDisplay.textContent = `再生: ${formattedTime}`;
+        } else {
+            this.playbackTimeDisplay.textContent = '';
+        }
     }
 
     enableControls() {
