@@ -34,57 +34,8 @@ class OriginalWaveformViewer {
     }
 
     setupEventListeners() {
-        // マウス操作
-        this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
-        this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
-        this.canvas.addEventListener('mouseleave', (e) => {
-            this.handleMouseUp(e);
-            // 範囲外に出たときにホバー状態を解除
-            if (this.hoverTopArea) {
-                this.hoverTopArea = false;
-                this.render();
-            }
-        });
-
-        // iOS / タッチ操作対応
-        this.canvas.addEventListener('touchstart', (e) => {
-            if (!this.audioBuffer) return;
-            const touch = e.touches[0];
-            if (!touch) return;
-            // ドラッグ開始時のみ preventDefault（判定は handleMouseDown 内で行う）
-            const wasDragging = this.isDragging;
-            this.handleMouseDown(touch);
-            // ドラッグが開始された場合のみ preventDefault
-            if (this.isDragging && !wasDragging) {
-                e.preventDefault();
-            }
-        }, { passive: false });
-
-        this.canvas.addEventListener('touchmove', (e) => {
-            if (!this.audioBuffer) return;
-            const touch = e.touches[0];
-            if (!touch) return;
-            // ドラッグ中のみ preventDefault
-            if (this.isDragging) {
-                e.preventDefault();
-            }
-            this.handleMouseMove(touch);
-        }, { passive: false });
-
-        this.canvas.addEventListener('touchend', (e) => {
-            const touch = e.changedTouches[0] || e.touches[0];
-            if (touch) {
-                this.handleMouseUp(touch);
-            } else {
-                this.handleMouseUp(e);
-            }
-        });
-
-        this.canvas.addEventListener('touchcancel', (e) => {
-            // タッチがキャンセルされた場合も確実に解除
-            this.handleMouseUp(e);
-        });
+        // 範囲選択機能は無効化（歌詞入力アプリでは不要）
+        // 波形クリック処理はuiControllerで行う
     }
 
     setAudioBuffer(audioBuffer) {
@@ -276,21 +227,7 @@ class OriginalWaveformViewer {
         const duration = this.audioBuffer.duration;
         const timeScale = width / duration;
         
-        // 範囲外の部分を暗く表示
-        const startX = this.startTime * timeScale;
-        const endX = this.endTime * timeScale;
-        
-        // 範囲前を暗く
-        if (startX > 0) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-            ctx.fillRect(0, 0, startX, height);
-        }
-        
-        // 範囲後を暗く
-        if (endX < width) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-            ctx.fillRect(endX, 0, width - endX, height);
-        }
+        // 範囲選択機能は無効化（歌詞入力アプリでは不要）
         
         // DCオフセットライン
         for (let channel = 0; channel < numChannels; channel++) {
@@ -374,10 +311,9 @@ class OriginalWaveformViewer {
             ctx.stroke();
         }
         
-        // 範囲指定UIを描画
-        this.drawRangeUI(ctx, startX, endX, height, timeScale);
+        // 範囲指定UIは表示しない（歌詞入力アプリでは不要）
         
-        // 選択範囲の尺を表示
+        // 尺を表示
         this.updateRangeDuration();
 
         // 再生位置ラインを描画（ミュートでない場合のみ）
@@ -406,9 +342,9 @@ class OriginalWaveformViewer {
 
     updateRangeDuration() {
         const rangeDurationElement = document.getElementById('range-duration');
-        if (rangeDurationElement) {
-            const rangeDuration = this.endTime - this.startTime;
-            rangeDurationElement.textContent = `選択範囲: ${rangeDuration.toFixed(2)}秒`;
+        if (rangeDurationElement && this.audioBuffer) {
+            const duration = this.audioBuffer.duration;
+            rangeDurationElement.textContent = `長さ: ${duration.toFixed(2)}秒`;
         }
     }
 
