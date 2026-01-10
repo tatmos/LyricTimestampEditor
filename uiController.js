@@ -197,7 +197,7 @@ class UIController {
             if (isInput) {
                 return;
             }
-            
+
             if (e.code === 'Space' || e.key === ' ') {
                 e.preventDefault();
                 this.togglePlayback();
@@ -597,9 +597,9 @@ class UIController {
             row.addEventListener('click', (e) => {
                 // 入力フィールドやボタンをクリックした場合はシークしない
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA') {
-                    return;
-                }
-                
+            return;
+        }
+
                 // 再生位置をその歌詞の開始時刻に移動
                 if (this.editor && this.editor.seekTo) {
                     this.editor.seekTo(lyric.startTime);
@@ -740,8 +740,8 @@ class UIController {
     // プレビュー表示を更新
     updateLyricPreview(currentTime) {
         if (!this.lyricPreview) {
-            return;
-        }
+                    return;
+                }
 
         // 現在の再生位置に対応する歌詞を取得
         const currentLyric = this.editor.lyricManager.getLyricAtTime(currentTime);
@@ -817,10 +817,19 @@ class UIController {
             if (mode === 'add') {
                 this.addModeBtn.classList.add('btn-mode-active');
                 this.adjustModeBtn.classList.remove('btn-mode-active');
-            } else {
+                } else {
                 this.addModeBtn.classList.remove('btn-mode-active');
                 this.adjustModeBtn.classList.add('btn-mode-active');
             }
+        }
+        
+        // モード切り替え時に選択状態をクリア
+        if (this.selectedLyricId !== null) {
+            const selectedRow = this.lyricsTbody ? this.lyricsTbody.querySelector('tr.selected') : null;
+            if (selectedRow) {
+                selectedRow.classList.remove('selected');
+            }
+            this.selectedLyricId = null;
         }
         
         // モード名を表示
