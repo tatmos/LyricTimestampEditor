@@ -28,6 +28,18 @@
             </div>
 
             <div class="export-controls">
+                <label for="import-srt-input" class="btn btn-secondary">
+                    <input type="file" id="import-srt-input" accept=".srt" hidden>
+                    SRT読み込み
+                </label>
+                <label for="import-json-input" class="btn btn-secondary">
+                    <input type="file" id="import-json-input" accept=".json" hidden>
+                    JSON読み込み
+                </label>
+                <div class="filename-controls">
+                    <label for="output-filename-input">出力ファイル名:</label>
+                    <input type="text" id="output-filename-input" class="filename-input" placeholder="lyrics" value="lyrics">
+                </div>
                 <button id="export-srt-btn" class="btn btn-secondary" disabled>SRT出力</button>
                 <button id="export-json-btn" class="btn btn-secondary" disabled>JSON出力</button>
             </div>
@@ -37,7 +49,14 @@
             <div class="original-waveform-container">
                 <div class="track-header">
                     <div class="track-label">波形</div>
-                    <div class="range-duration" id="range-duration">長さ: 0.00秒</div>
+                    <div class="track-controls">
+                        <div class="zoom-controls">
+                            <button id="zoom-in-btn" class="btn btn-small" disabled>🔍+</button>
+                            <button id="zoom-out-btn" class="btn btn-small" disabled>🔍-</button>
+                            <button id="zoom-reset-btn" class="btn btn-small" disabled>全体表示</button>
+                        </div>
+                        <div class="range-duration" id="range-duration">長さ: 0.00秒</div>
+                    </div>
                 </div>
                 <div class="waveform-row">
                     <div class="audio-controls">
@@ -113,6 +132,8 @@
     <script src="levelMeter.js"></script>
     <script src="lyricManager.js"></script>
     <script src="exporter.js"></script>
+    <script src="importer.js"></script>
+    <script src="fileHandler.js"></script>
     <script src="app.js"></script>
     <script src="uiController.js"></script>
 </body>

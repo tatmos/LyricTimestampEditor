@@ -31,6 +31,44 @@ class LyricManager {
         return lyric;
     }
 
+    // 歌詞を一括追加（インポート用）
+    addLyrics(lyricsData) {
+        if (!Array.isArray(lyricsData)) {
+            return 0;
+        }
+
+        let addedCount = 0;
+        for (const data of lyricsData) {
+            if (!data || typeof data !== 'object') continue;
+            if (!data.text || typeof data.text !== 'string' || data.text.trim() === '') continue;
+            if (typeof data.startTime !== 'number' || isNaN(data.startTime) || data.startTime < 0) continue;
+
+            const lyric = {
+                id: this.nextId++,
+                startTime: data.startTime,
+                text: data.text.trim(),
+                endTime: null // 後で設定される
+            };
+
+            // endTimeが有効な場合は設定（後でupdateEndTimes()で上書きされる可能性がある）
+            if (data.endTime !== undefined && typeof data.endTime === 'number' && !isNaN(data.endTime) && data.endTime > data.startTime) {
+                lyric.endTime = data.endTime;
+            }
+
+            this.lyrics.push(lyric);
+            addedCount++;
+        }
+
+        this.updateEndTimes();
+        this.sortLyrics();
+        
+        if (this.onLyricsChange) {
+            this.onLyricsChange();
+        }
+
+        return addedCount;
+    }
+
     // 歌詞を更新
     updateLyric(id, updates) {
         const lyric = this.lyrics.find(l => l.id === id);

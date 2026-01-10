@@ -2,9 +2,16 @@
 class UIController {
     constructor(editor) {
         this.editor = editor;
+        this.fileHandler = new FileHandler(editor, this);
         this.initializeElements();
         this.setupEventListeners();
         this.currentModalTime = null;
+        
+        // ドラッグ処理用
+        this.isDragging = false;
+        this.dragStartX = 0;
+        this.dragStartTime = null;
+        this.lastClickTime = null;
     }
 
     initializeElements() {
@@ -19,6 +26,14 @@ class UIController {
         this.lyricsTbody = document.getElementById('lyrics-tbody');
         this.exportSrtBtn = document.getElementById('export-srt-btn');
         this.exportJsonBtn = document.getElementById('export-json-btn');
+        this.importSrtInput = document.getElementById('import-srt-input');
+        this.importJsonInput = document.getElementById('import-json-input');
+        this.outputFilenameInput = document.getElementById('output-filename-input');
+        
+        // ズームコントロール
+        this.zoomInBtn = document.getElementById('zoom-in-btn');
+        this.zoomOutBtn = document.getElementById('zoom-out-btn');
+        this.zoomResetBtn = document.getElementById('zoom-reset-btn');
         
         // モーダル関連
         this.lyricModal = document.getElementById('lyric-modal');
@@ -39,9 +54,36 @@ class UIController {
         
         this.originalSpeakerBtn.addEventListener('click', () => this.toggleOriginalMute());
         
-        // 波形上クリックで歌詞追加モーダルを開く
+        // 波形上ドラッグ処理（クリック、ドラッグ、スクラッチ再生）
         if (this.originalWaveform) {
-            this.originalWaveform.addEventListener('click', (e) => this.handleWaveformClick(e));
+            this.originalWaveform.addEventListener('mousedown', (e) => this.handleWaveformMouseDown(e));
+            this.originalWaveform.addEventListener('mousemove', (e) => this.handleWaveformMouseMove(e));
+            this.originalWaveform.addEventListener('mouseup', (e) => this.handleWaveformMouseUp(e));
+            this.originalWaveform.addEventListener('mouseleave', (e) => this.handleWaveformMouseUp(e));
+            
+            // タッチイベント対応
+            this.originalWaveform.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                if (touch) {
+                    this.handleWaveformMouseDown(touch);
+                }
+            }, { passive: false });
+            this.originalWaveform.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                if (touch) {
+                    this.handleWaveformMouseMove(touch);
+                }
+            }, { passive: false });
+            this.originalWaveform.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                this.handleWaveformMouseUp(e);
+            });
+            this.originalWaveform.addEventListener('touchcancel', (e) => {
+                e.preventDefault();
+                this.handleWaveformMouseUp(e);
+            });
         }
 
         // ドロップゾーン
@@ -66,17 +108,48 @@ class UIController {
                 const files = e.dataTransfer?.files;
                 if (files && files.length > 0) {
                     this.fileInput.value = '';
-                    this.loadFile(files[0]);
+                    this.fileHandler.loadAudioFile(files[0]);
                 }
             });
         }
 
         // エクスポートボタン
         if (this.exportSrtBtn) {
-            this.exportSrtBtn.addEventListener('click', () => this.exportSRT());
+            this.exportSrtBtn.addEventListener('click', () => this.fileHandler.exportSRT());
         }
         if (this.exportJsonBtn) {
-            this.exportJsonBtn.addEventListener('click', () => this.exportJSON());
+            this.exportJsonBtn.addEventListener('click', () => this.fileHandler.exportJSON());
+        }
+
+        // インポートボタン
+        if (this.importSrtInput) {
+            this.importSrtInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    await this.fileHandler.importSRT(file);
+                    e.target.value = ''; // リセット
+            }
+        });
+    }
+        if (this.importJsonInput) {
+            this.importJsonInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    await this.fileHandler.importJSON(file);
+                    e.target.value = ''; // リセット
+                }
+            });
+        }
+
+        // ズームコントロール
+        if (this.zoomInBtn) {
+            this.zoomInBtn.addEventListener('click', () => this.zoomIn());
+        }
+        if (this.zoomOutBtn) {
+            this.zoomOutBtn.addEventListener('click', () => this.zoomOut());
+        }
+        if (this.zoomResetBtn) {
+            this.zoomResetBtn.addEventListener('click', () => this.zoomReset());
         }
 
         // モーダル関連
@@ -96,7 +169,7 @@ class UIController {
                 }
             });
         }
-
+        
         // キーボードショートカット
         document.addEventListener('keydown', (e) => {
             const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
@@ -111,6 +184,17 @@ class UIController {
                 e.preventDefault();
                 this.togglePlayback();
             }
+            
+            // 左右矢印キーでシーク（再生中のみ）
+            if (this.editor.audioPlayer && this.editor.audioPlayer.isPlaying && this.editor.audioBuffer) {
+                if (e.key === 'ArrowLeft' || e.code === 'ArrowLeft') {
+                    e.preventDefault();
+                    this.seekRelative(-5.0); // 5秒戻る
+                } else if (e.key === 'ArrowRight' || e.code === 'ArrowRight') {
+                    e.preventDefault();
+                    this.seekRelative(5.0); // 5秒進む
+                }
+            }
         });
 
         // Enterキーでモーダル保存
@@ -124,72 +208,114 @@ class UIController {
         }
     }
 
-    // 波形上クリック処理
-    handleWaveformClick(e) {
-        if (!this.editor.audioBuffer) return;
+    // 波形上で時刻を計算（拡大機能を考慮）
+    calculateTimeFromPosition(e, canvas) {
+        if (!this.editor.audioBuffer || !this.editor.originalWaveformViewer) return null;
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const x = clientX - rect.left;
         const width = rect.width;
-        if (width <= 0) return;
+        if (width <= 0) return null;
 
-        const ratio = Math.min(1, Math.max(0, x / width));
+        // 拡大機能を考慮した時刻計算
+        const viewStartTime = this.editor.originalWaveformViewer.viewStartTime;
+        const viewEndTime = this.editor.originalWaveformViewer.viewEndTime;
+        const viewDuration = viewEndTime - viewStartTime;
+        const timeScale = width / viewDuration;
+        
+        const targetTime = viewStartTime + (x / timeScale);
+        
+        // 範囲内にクリップ
         const duration = this.editor.audioBuffer.duration;
-        const targetTime = duration * ratio;
+        return Math.max(0, Math.min(duration, targetTime));
+    }
 
-        // 再生中の場合はシーク、そうでなければ歌詞追加モーダルを開く
-        if (this.editor.audioPlayer && this.editor.audioPlayer.isPlaying) {
-            this.editor.seekTo(targetTime);
-        } else {
-            this.openLyricModal(targetTime);
+    // 波形上マウスダウン処理
+    handleWaveformMouseDown(e) {
+        if (!this.editor.audioBuffer || !this.editor.originalWaveformViewer || !this.editor.audioPlayer) return;
+
+        const time = this.calculateTimeFromPosition(e, this.originalWaveform);
+        if (time === null) return;
+
+        this.isDragging = true;
+        this.dragStartX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        this.dragStartTime = time;
+        
+        // 最後にクリックした位置を記録
+        this.lastClickTime = time;
+        this.editor.audioPlayer.setLastClickedTime(time);
+
+        // 再生中の場合はシーク
+        if (this.editor.audioPlayer.isPlaying) {
+            this.editor.seekTo(time);
+            } else {
+            // スクラッチ再生を開始
+            this.editor.audioPlayer.playScratch(this.editor.audioBuffer, time, 0.15);
         }
+    }
+
+    // 波形上マウスムーブ処理（ドラッグ中）
+    handleWaveformMouseMove(e) {
+        if (!this.isDragging || !this.editor.audioBuffer || !this.editor.audioPlayer) return;
+
+        const time = this.calculateTimeFromPosition(e, this.originalWaveform);
+        if (time === null) return;
+
+        // ドラッグ距離を計算（5ピクセル以上動いたらドラッグと判定）
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const dragDistance = Math.abs(clientX - this.dragStartX);
+
+        if (dragDistance > 5) {
+            // スクラッチ再生（短いサンプルを再生）
+            this.editor.audioPlayer.playScratch(this.editor.audioBuffer, time, 0.15);
+        }
+    }
+
+    // 波形上マウスアップ処理
+    handleWaveformMouseUp(e) {
+        if (!this.isDragging) return;
+
+        // マウスアップ位置の時刻を計算
+        const endClientX = e.clientX !== undefined ? e.clientX : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : this.dragStartX);
+        const dragDistance = Math.abs(endClientX - this.dragStartX);
+        const wasDragging = dragDistance > 5;
+        
+        // スクラッチ再生を停止
+        if (this.editor.audioPlayer) {
+            this.editor.audioPlayer.stopScratch();
+        }
+
+        // 再生中でない場合のみモーダルを開く
+        if (!this.editor.audioPlayer.isPlaying) {
+            let targetTime = null;
+            
+            if (wasDragging) {
+                // ドラッグしていた場合、最後の位置で歌詞追加モーダルを開く
+                targetTime = this.calculateTimeFromPosition(e, this.originalWaveform);
+        } else {
+                // クリックのみの場合（ドラッグしていない）、最初にクリックした位置でモーダルを開く
+                targetTime = this.dragStartTime;
+            }
+            
+            if (targetTime !== null) {
+                // 少し待ってからモーダルを開く（スクラッチ再生が終わってから）
+                setTimeout(() => {
+                    this.openLyricModal(targetTime);
+                }, 150);
+            }
+        }
+
+        this.isDragging = false;
+        this.dragStartX = 0;
+        this.dragStartTime = null;
     }
 
     async handleFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
 
-        await this.loadFile(file);
-    }
-
-    async loadFile(file) {
-        if (!file) return;
-
-        this.showStatus('ファイルを読み込み中...', 'info');
-
-        try {
-            // 再生中なら停止してから読み込み
-            if (this.editor.audioPlayer && this.editor.audioPlayer.isPlaying) {
-                this.editor.audioPlayer.stopPreview();
-                this.editor.stopPlaybackAnimation();
-                this.playBtn.disabled = false;
-                this.stopBtn.disabled = true;
-            }
-
-            const arrayBuffer = await file.arrayBuffer();
-            this.editor.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            this.editor.audioBuffer = await this.editor.audioContext.decodeAudioData(arrayBuffer);
-            this.editor.audioPlayer = new AudioPlayer(this.editor.audioContext);
-            
-            // レベルメーターコンポーネントを初期化
-            this.originalLevelMeter = new LevelMeter('original', this.editor.audioPlayer, true);
-            
-            // 波形を表示
-            if (this.editor.originalWaveformViewer) {
-                this.editor.originalWaveformViewer.setAudioBuffer(this.editor.audioBuffer);
-                this.editor.originalWaveformViewer.setRange(0, this.editor.audioBuffer.duration);
-                if (this.dropOverlay) {
-                    this.dropOverlay.classList.add('hidden');
-                }
-            }
-            
-            this.editor.drawWaveform();
-            this.enableControls();
-            this.showStatus('ファイルの読み込みが完了しました', 'success');
-        } catch (error) {
-            this.showStatus('エラー: ' + error.message, 'error');
-            console.error(error);
-        }
+        await this.fileHandler.loadAudioFile(file);
     }
 
     togglePlayback() {
@@ -197,7 +323,7 @@ class UIController {
         
         if (this.editor.audioPlayer.isPlaying) {
             this.stopPreview();
-        } else {
+            } else {
             this.playPreview();
         }
     }
@@ -209,12 +335,28 @@ class UIController {
             this.playBtn.disabled = true;
             this.stopBtn.disabled = false;
 
-            const started = this.editor.audioPlayer.playPreview(this.editor.audioBuffer, 0);
+            // 優先順位: 最後にクリックした位置 > 前回停止した位置 > 0
+            let startOffset = 0;
+            const lastClickedTime = this.editor.audioPlayer.getLastClickedTime();
+            const lastStoppedTime = this.editor.audioPlayer.getLastStoppedTime();
+            
+            if (lastClickedTime !== null) {
+                // 最後にクリックした位置から再生
+                startOffset = lastClickedTime;
+            } else if (lastStoppedTime !== null) {
+                // 前回停止した位置の少し前（0.5秒前）から再生
+                startOffset = Math.max(0, lastStoppedTime - 0.5);
+            }
+
+            const started = this.editor.audioPlayer.playPreview(this.editor.audioBuffer, startOffset);
             if (!started) {
                 this.playBtn.disabled = false;
                 this.stopBtn.disabled = true;
                 return;
             }
+
+            // 再生位置が表示範囲外の場合は、表示範囲内にスクロール
+            this.scrollToPlaybackPosition(startOffset);
 
             this.editor.startPlaybackAnimation();
             this.showStatus('再生中...', 'info');
@@ -225,8 +367,73 @@ class UIController {
             this.stopBtn.disabled = true;
         }
     }
+    
+    // 相対的なシーク（左右矢印キー用）
+    seekRelative(deltaSeconds) {
+        if (!this.editor.audioPlayer || !this.editor.audioBuffer || !this.editor.audioPlayer.isPlaying) {
+            return;
+        }
+
+        const currentTime = this.editor.audioPlayer.getCurrentPlaybackTime();
+        if (currentTime === null) return;
+
+        const duration = this.editor.audioBuffer.duration;
+        if (duration <= 0) return;
+
+        // 新しい再生位置を計算
+        let targetTime = currentTime + deltaSeconds;
+        
+        // 範囲内にクリップ
+        targetTime = Math.max(0, Math.min(duration, targetTime));
+        
+        // 最後にクリックした位置を記録
+        this.editor.audioPlayer.setLastClickedTime(targetTime);
+
+        // シーク実行
+        this.editor.seekTo(targetTime);
+    }
+
+    // 再生位置が表示範囲内に来るようにスクロール
+    scrollToPlaybackPosition(time) {
+        if (!this.editor.originalWaveformViewer || !this.editor.audioBuffer) return;
+        
+        const viewStartTime = this.editor.originalWaveformViewer.viewStartTime;
+        const viewEndTime = this.editor.originalWaveformViewer.viewEndTime;
+        
+        // 再生位置が表示範囲外の場合
+        if (time < viewStartTime || time > viewEndTime) {
+            const duration = this.editor.audioBuffer.duration;
+            const viewDuration = viewEndTime - viewStartTime;
+            const margin = viewDuration * 0.1; // 表示範囲の10%をマージンとして使用
+            
+            let newStartTime, newEndTime;
+            
+            if (time < viewStartTime) {
+                // 再生位置が表示範囲の左側にある場合
+                newEndTime = Math.min(duration, time + margin);
+                newStartTime = Math.max(0, newEndTime - viewDuration);
+                } else {
+                // 再生位置が表示範囲の右側にある場合
+                newStartTime = Math.max(0, time - margin);
+                newEndTime = Math.min(duration, newStartTime + viewDuration);
+            }
+            
+            // 表示範囲を更新
+            this.editor.originalWaveformViewer.viewStartTime = newStartTime;
+            this.editor.originalWaveformViewer.viewEndTime = newEndTime;
+            // drawWaveform()を呼んで正しく再描画（歌詞データと再生位置を含む）
+            this.editor.drawWaveform();
+        }
+    }
 
     stopPreview() {
+        let currentTime = null;
+        
+        // 停止前に現在の再生位置を取得
+        if (this.editor.audioPlayer && this.editor.audioPlayer.isPlaying) {
+            currentTime = this.editor.audioPlayer.getCurrentPlaybackTime();
+        }
+        
         if (this.editor.audioPlayer) {
             this.editor.audioPlayer.stopPreview();
         }
@@ -234,6 +441,16 @@ class UIController {
         this.playBtn.disabled = false;
         this.stopBtn.disabled = true;
         this.showStatus('停止しました', 'info');
+        
+        // 停止時に現在の再生位置で歌詞追加モーダルを開く
+        if (currentTime !== null) {
+            // 最後にクリックした位置を更新
+            this.editor.audioPlayer.setLastClickedTime(currentTime);
+            // 少し待ってからモーダルを開く
+            setTimeout(() => {
+                this.openLyricModal(currentTime);
+            }, 100);
+        }
     }
 
     toggleOriginalMute() {
@@ -403,32 +620,41 @@ class UIController {
         }
     }
 
-    // SRT出力
-    exportSRT() {
-        const lyrics = this.editor.lyricManager.getAllLyrics();
-        if (lyrics.length === 0) {
-            this.showStatus('歌詞がありません', 'error');
-            return;
-        }
-        Exporter.downloadSRT(lyrics);
-        this.showStatus('SRTファイルをダウンロードしました', 'success');
-    }
-
-    // JSON出力
-    exportJSON() {
-        const lyrics = this.editor.lyricManager.getAllLyrics();
-        if (lyrics.length === 0) {
-            this.showStatus('歌詞がありません', 'error');
-            return;
-        }
-        Exporter.downloadJSON(lyrics);
-        this.showStatus('JSONファイルをダウンロードしました', 'success');
-    }
 
     enableControls() {
         this.playBtn.disabled = false;
         if (this.originalSpeakerBtn) {
             this.originalSpeakerBtn.disabled = false;
+        }
+        if (this.zoomInBtn) {
+            this.zoomInBtn.disabled = false;
+        }
+        if (this.zoomOutBtn) {
+            this.zoomOutBtn.disabled = false;
+        }
+        if (this.zoomResetBtn) {
+            this.zoomResetBtn.disabled = false;
+        }
+    }
+
+    // ズームイン
+    zoomIn() {
+        if (this.editor.originalWaveformViewer) {
+            this.editor.originalWaveformViewer.zoomIn();
+        }
+    }
+
+    // ズームアウト
+    zoomOut() {
+        if (this.editor.originalWaveformViewer) {
+            this.editor.originalWaveformViewer.zoomOut();
+        }
+    }
+
+    // ズームリセット
+    zoomReset() {
+        if (this.editor.originalWaveformViewer) {
+            this.editor.originalWaveformViewer.zoomReset();
         }
     }
 

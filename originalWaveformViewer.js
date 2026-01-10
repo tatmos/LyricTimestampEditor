@@ -12,6 +12,13 @@ class OriginalWaveformViewer {
         this.onRangeChange = null; // コールバック関数
         this.hoverTopArea = false; // 上部30%エリアをホバーしているか
         
+        // 拡大機能
+        this.zoomLevel = 1.0; // ズームレベル（1.0が通常）
+        this.viewStartTime = 0; // 表示範囲の開始時刻（秒）
+        this.viewEndTime = 0; // 表示範囲の終了時刻（秒）
+        this.isPanning = false; // パン中かどうか
+        this.panStartX = 0; // パン開始位置
+        
         this.setupEventListeners();
     }
 
@@ -42,9 +49,131 @@ class OriginalWaveformViewer {
         this.audioBuffer = audioBuffer;
         if (audioBuffer) {
             this.endTime = audioBuffer.duration;
+            this.viewStartTime = 0;
+            this.viewEndTime = audioBuffer.duration;
         }
         this.render();
         this.updateRangeDuration();
+    }
+    
+    // ズームイン
+    zoomIn(factor = 1.5) {
+        if (!this.audioBuffer) return;
+        
+        const duration = this.audioBuffer.duration;
+        const currentViewDuration = this.viewEndTime - this.viewStartTime;
+        const centerTime = (this.viewStartTime + this.viewEndTime) / 2;
+        
+        // 新しい表示範囲を計算
+        const newViewDuration = currentViewDuration / factor;
+        const halfDuration = newViewDuration / 2;
+        
+        let newStartTime = Math.max(0, centerTime - halfDuration);
+        let newEndTime = Math.min(duration, centerTime + halfDuration);
+        
+        // 範囲が最小値より小さくならないようにする
+        const minDuration = duration / 100; // 最小表示範囲は全体の1%
+        if (newEndTime - newStartTime < minDuration) {
+            newStartTime = Math.max(0, centerTime - minDuration / 2);
+            newEndTime = Math.min(duration, centerTime + minDuration / 2);
+        }
+        
+        this.viewStartTime = newStartTime;
+        this.viewEndTime = newEndTime;
+        this.zoomLevel = duration / (newEndTime - newStartTime);
+        
+        this.render();
+    }
+    
+    // ズームアウト
+    zoomOut(factor = 1.5) {
+        if (!this.audioBuffer) return;
+        
+        const duration = this.audioBuffer.duration;
+        const currentViewDuration = this.viewEndTime - this.viewStartTime;
+        const centerTime = (this.viewStartTime + this.viewEndTime) / 2;
+        
+        // 新しい表示範囲を計算
+        const newViewDuration = Math.min(duration, currentViewDuration * factor);
+        const halfDuration = newViewDuration / 2;
+        
+        let newStartTime = Math.max(0, centerTime - halfDuration);
+        let newEndTime = Math.min(duration, centerTime + halfDuration);
+        
+        // 全体を超えないようにする
+        if (newEndTime - newStartTime >= duration) {
+            newStartTime = 0;
+            newEndTime = duration;
+        }
+        
+        this.viewStartTime = newStartTime;
+        this.viewEndTime = newEndTime;
+        this.zoomLevel = duration / (newEndTime - newStartTime);
+        
+        this.render();
+    }
+    
+    // ズームをリセット（全体表示）
+    zoomReset() {
+        if (!this.audioBuffer) return;
+        
+        this.viewStartTime = 0;
+        this.viewEndTime = this.audioBuffer.duration;
+        this.zoomLevel = 1.0;
+        
+        this.render();
+    }
+    
+    // パン（平行移動）
+    pan(deltaTime) {
+        if (!this.audioBuffer) return;
+        
+        const duration = this.audioBuffer.duration;
+        const viewDuration = this.viewEndTime - this.viewStartTime;
+        
+        let newStartTime = this.viewStartTime + deltaTime;
+        let newEndTime = this.viewEndTime + deltaTime;
+        
+        // 範囲チェック
+        if (newStartTime < 0) {
+            newStartTime = 0;
+            newEndTime = viewDuration;
+        } else if (newEndTime > duration) {
+            newEndTime = duration;
+            newStartTime = duration - viewDuration;
+        }
+        
+        this.viewStartTime = newStartTime;
+        this.viewEndTime = newEndTime;
+        
+        this.render();
+    }
+    
+    // 指定時刻を中心にズーム
+    zoomToTime(centerTime, zoomLevel) {
+        if (!this.audioBuffer) return;
+        
+        const duration = this.audioBuffer.duration;
+        const viewDuration = duration / zoomLevel;
+        const halfDuration = viewDuration / 2;
+        
+        let newStartTime = Math.max(0, centerTime - halfDuration);
+        let newEndTime = Math.min(duration, centerTime + halfDuration);
+        
+        // 範囲チェック
+        if (newEndTime - newStartTime < viewDuration) {
+            if (newStartTime === 0) {
+                newEndTime = Math.min(duration, viewDuration);
+            } else if (newEndTime === duration) {
+                newStartTime = Math.max(0, duration - viewDuration);
+            }
+        }
+        
+        this.viewStartTime = newStartTime;
+        this.viewEndTime = newEndTime;
+        this.zoomLevel = zoomLevel;
+        
+        this.render();
     }
 
     setRange(startTime, endTime) {
@@ -208,7 +337,7 @@ class OriginalWaveformViewer {
         }
     }
 
-    render(currentPlaybackTime = null) {
+    render(currentPlaybackTime = null, lyrics = null) {
         if (!this.audioBuffer) return;
         
         const width = this.canvas.width = this.canvas.offsetWidth;
@@ -225,15 +354,21 @@ class OriginalWaveformViewer {
         const numChannels = this.audioBuffer.numberOfChannels;
         const trackHeight = numChannels === 2 ? height / 2 : height;
         const duration = this.audioBuffer.duration;
-        const timeScale = width / duration;
         
-        // 範囲選択機能は無効化（歌詞入力アプリでは不要）
+        // 拡大機能を反映：表示範囲を使用
+        const viewDuration = this.viewEndTime - this.viewStartTime;
+        const timeScale = width / viewDuration;
         
-        // DCオフセットライン
+        // DCオフセットライン（表示範囲内のデータで計算）
         for (let channel = 0; channel < numChannels; channel++) {
             const channelData = this.audioBuffer.getChannelData(channel);
             const yOffset = channel * trackHeight;
-            const dcOffset = this.calculateDCOffset(channelData, 0, channelData.length);
+            
+            // 表示範囲内のサンプルでDCオフセットを計算
+            const startSample = Math.floor(this.viewStartTime * sampleRate);
+            const endSample = Math.min(Math.floor(this.viewEndTime * sampleRate), channelData.length);
+            const dcOffset = this.calculateDCOffset(channelData, startSample, endSample);
+            
             const dcY = yOffset + (trackHeight / 2) - (dcOffset * trackHeight / 2 * 0.9);
             ctx.strokeStyle = '#006400';
             ctx.lineWidth = 1;
@@ -245,8 +380,8 @@ class OriginalWaveformViewer {
             ctx.setLineDash([]);
         }
         
-        // 波形描画
-        const samplesPerPixel = Math.max(1, Math.floor((duration * sampleRate) / width));
+        // 波形描画（表示範囲内のみ）
+        const samplesPerPixel = Math.max(1, Math.floor((viewDuration * sampleRate) / width));
         
         for (let channel = 0; channel < numChannels; channel++) {
             const channelData = this.audioBuffer.getChannelData(channel);
@@ -260,8 +395,9 @@ class OriginalWaveformViewer {
             let firstPointTop = true;
             let firstPointBottom = true;
             
+            // 表示範囲内の波形を描画
             for (let x = 0; x < width; x++) {
-                const timeAtX = (x / timeScale);
+                const timeAtX = this.viewStartTime + (x / timeScale);
                 const pixelStartSample = Math.floor(timeAtX * sampleRate);
                 if (pixelStartSample < 0 || pixelStartSample >= channelData.length) continue;
                 
@@ -285,7 +421,7 @@ class OriginalWaveformViewer {
             }
             
             for (let x = width - 1; x >= 0; x--) {
-                const timeAtX = (x / timeScale);
+                const timeAtX = this.viewStartTime + (x / timeScale);
                 const pixelStartSample = Math.floor(timeAtX * sampleRate);
                 if (pixelStartSample < 0 || pixelStartSample >= channelData.length) continue;
                 
@@ -316,23 +452,67 @@ class OriginalWaveformViewer {
         // 尺を表示
         this.updateRangeDuration();
 
+        // 歌詞の位置に縦ラインを描画
+        if (lyrics && lyrics.length > 0) {
+            this.drawLyricMarkers(lyrics, width, height, this.viewStartTime, viewDuration, timeScale);
+        }
+
         // 再生位置ラインを描画（ミュートでない場合のみ）
         if (currentPlaybackTime !== null && currentPlaybackTime >= 0) {
             this.drawPlaybackPosition(currentPlaybackTime, duration, width, height);
         }
 
-        // タイムルーラーを描画
-        this.timeRuler.draw(duration, width);
+        // タイムルーラーを描画（拡大機能を反映）
+        this.timeRuler.draw(viewDuration, width, this.viewStartTime);
+    }
+    
+    // 歌詞の位置に縦ラインを描画
+    drawLyricMarkers(lyrics, width, height, viewStartTime, viewDuration, timeScale) {
+        if (!lyrics || lyrics.length === 0) return;
+        
+        const ctx = this.ctx;
+        
+        // 表示範囲内の歌詞のみ描画
+        const viewEndTime = viewStartTime + viewDuration;
+        
+        lyrics.forEach(lyric => {
+            const startTime = lyric.startTime;
+            
+            // 表示範囲外の場合は描画しない
+            if (startTime < viewStartTime || startTime > viewEndTime) {
+                return;
+            }
+            
+            const x = (startTime - viewStartTime) * timeScale;
+            
+            // 縦ラインを描画（青色）
+            ctx.strokeStyle = '#4169E1'; // ロイヤルブルー
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]); // 点線
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
+            ctx.stroke();
+            ctx.setLineDash([]); // 点線をリセット
+        });
     }
 
     drawPlaybackPosition(currentTime, totalDuration, width, height) {
         if (totalDuration <= 0) return;
 
-        const timeScale = width / totalDuration;
-        const x = (currentTime % totalDuration) * timeScale;
+        // 拡大機能を反映：表示範囲内での位置を計算
+        const viewDuration = this.viewEndTime - this.viewStartTime;
+        const timeScale = width / viewDuration;
+        
+        // 表示範囲外の場合は描画しない
+        if (currentTime < this.viewStartTime || currentTime > this.viewEndTime) {
+            return;
+        }
+
+        const x = (currentTime - this.viewStartTime) * timeScale;
 
         const ctx = this.ctx;
-        ctx.strokeStyle = '#ff8c00'; // オレンジ色（加工後の波形と同じ）
+        ctx.strokeStyle = '#ff8c00'; // オレンジ色
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(x, 0);

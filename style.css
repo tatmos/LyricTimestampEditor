@@ -652,6 +652,24 @@ header h1 {
     font-size: 14px;
 }
 
+.track-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.zoom-controls {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.zoom-controls .btn-small {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: auto;
+}
+
 .range-duration {
     font-weight: 600;
     color: #333;
@@ -732,6 +750,40 @@ header h1 {
     display: flex;
     gap: 10px;
     align-items: center;
+    flex-wrap: wrap;
+}
+
+.filename-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filename-controls label {
+    font-weight: 600;
+    color: #333;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+#output-filename-input {
+    padding: 8px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: monospace;
+    min-width: 150px;
+    transition: border-color 0.3s ease;
+}
+
+#output-filename-input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+#output-filename-input:disabled {
+    background-color: #f5f5f5;
+    cursor: not-allowed;
 }
 
 .lyrics-section {

@@ -5,7 +5,7 @@ class TimeRuler {
     }
 
     // タイムルーラーを描画
-    draw(totalDuration, width) {
+    draw(totalDuration, width, viewStartTime = 0) {
         if (totalDuration <= 0 || !this.ruler) {
             if (this.ruler) {
                 this.ruler.innerHTML = '';
@@ -20,10 +20,14 @@ class TimeRuler {
         const tickInterval = this.calculateTickInterval(totalDuration, width);
         const timeScale = width / totalDuration;
 
-        for (let time = 0; time <= totalDuration; time += tickInterval) {
-            const x = time * timeScale;
+        // 表示範囲の開始時刻から終了時刻まで
+        const viewEndTime = viewStartTime + totalDuration;
+        const startTick = Math.floor(viewStartTime / tickInterval) * tickInterval;
+        
+        for (let time = startTick; time <= viewEndTime; time += tickInterval) {
+            const x = (time - viewStartTime) * timeScale;
 
-            // 目盛り線とラベル
+            // 目盛り線とラベル（絶対時間を表示）
             const tick = document.createElement('div');
             tick.className = 'ruler-tick';
             tick.style.position = 'absolute';

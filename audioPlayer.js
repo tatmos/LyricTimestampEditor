@@ -13,6 +13,17 @@ class AudioPlayer {
         
         // レベルメータ用のデータ配列
         this.levels = null;
+        
+        // 停止位置の記憶（次回再生時に少し前から再生するため）
+        this.lastStoppedTime = null;
+        
+        // スクラッチ再生用
+        this.scratchSourceNode = null;
+        this.scratchGainNode = null;
+        this.isScratching = false;
+        
+        // 最後にクリックした位置
+        this.lastClickedTime = null;
     }
 
     // バッファを再生
@@ -68,6 +79,14 @@ class AudioPlayer {
     }
 
     stopPreview() {
+        // 停止時の位置を記録
+        if (this.isPlaying && this.sourceNode && this.sourceNode.buffer) {
+            const currentTime = this.getCurrentPlaybackTime();
+            if (currentTime !== null) {
+                this.lastStoppedTime = currentTime;
+            }
+        }
+        
         if (this.sourceNode) {
             try {
                 this.sourceNode.stop();
@@ -88,6 +107,16 @@ class AudioPlayer {
         this.startTime = null;
         this.isPlaying = false;
         this.levels = null;
+    }
+    
+    // 最後に停止した位置を取得（少し前から再生するための計算用）
+    getLastStoppedTime() {
+        return this.lastStoppedTime;
+    }
+    
+    // 停止位置をクリア（最初から再生する場合など）
+    clearLastStoppedTime() {
+        this.lastStoppedTime = null;
     }
 
     // ミュート状態を切り替え
@@ -113,5 +142,83 @@ class AudioPlayer {
         }
         const elapsed = this.audioContext.currentTime - this.startTime;
         return elapsed % this.sourceNode.buffer.duration;
+    }
+    
+    // スクラッチ再生（短い時間のサンプル再生）
+    playScratch(audioBuffer, startTime, duration = 0.1) {
+        if (!audioBuffer || this.isScratching) return;
+        
+        // 範囲チェック
+        if (startTime < 0 || startTime >= audioBuffer.duration) return;
+        
+        // 既存のスクラッチ再生を停止
+        this.stopScratch();
+        
+        try {
+            const endTime = Math.min(startTime + duration, audioBuffer.duration);
+            const actualDuration = endTime - startTime;
+            
+            if (actualDuration <= 0) return;
+            
+            // 短いサンプルを再生
+            const source = this.audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            
+            // GainNodeでボリューム制御
+            this.scratchGainNode = this.audioContext.createGain();
+            this.scratchGainNode.gain.value = 1.0;
+            
+            source.connect(this.scratchGainNode);
+            this.scratchGainNode.connect(this.audioContext.destination);
+            
+            this.scratchSourceNode = source;
+            this.isScratching = true;
+            
+            // 再生開始（指定した位置から、短い時間だけ再生）
+            const startAt = this.audioContext.currentTime;
+            source.start(startAt, startTime);
+            
+            // 指定時間後に自動停止
+            source.stop(startAt + actualDuration);
+            
+            // 自動停止後にクリーンアップ
+            source.onended = () => {
+                this.stopScratch();
+            };
+            
+            return true;
+        } catch (error) {
+            console.error('スクラッチ再生エラー:', error);
+            this.isScratching = false;
+            return false;
+        }
+    }
+    
+    // スクラッチ再生を停止
+    stopScratch() {
+        if (this.scratchSourceNode) {
+            try {
+                this.scratchSourceNode.stop();
+                this.scratchSourceNode.disconnect();
+            } catch (e) {
+                // 既に停止している場合など
+            }
+            this.scratchSourceNode = null;
+        }
+        if (this.scratchGainNode) {
+            this.scratchGainNode.disconnect();
+            this.scratchGainNode = null;
+        }
+        this.isScratching = false;
+    }
+    
+    // 最後にクリックした位置を設定
+    setLastClickedTime(time) {
+        this.lastClickedTime = time;
+    }
+    
+    // 最後にクリックした位置を取得
+    getLastClickedTime() {
+        return this.lastClickedTime;
     }
 }

@@ -23,6 +23,8 @@ class LyricTimestampEditor {
             if (this.uiController) {
                 this.uiController.updateLyricsTable();
             }
+            // 歌詞が変更されたら波形を再描画（歌詞マーカーを更新するため）
+            this.drawWaveform();
         };
     }
 
@@ -35,11 +37,19 @@ class LyricTimestampEditor {
 
         // 範囲内にクリップ
         let targetTime = Math.max(0, Math.min(duration, timeInSeconds));
+        
+        // 最後にクリックした位置を記録
+        this.audioPlayer.setLastClickedTime(targetTime);
 
         // 再生中のみシーク
         if (this.audioPlayer.isPlaying) {
             this.audioPlayer.stopPreview();
             this.audioPlayer.playPreview(this.audioBuffer, targetTime);
+            
+            // 再生位置が表示範囲内に来るようにスクロール
+            if (this.uiController) {
+                this.uiController.scrollToPlaybackPosition(targetTime);
+            }
         }
     }
 
@@ -55,21 +65,31 @@ class LyricTimestampEditor {
         
         const currentTime = this.audioPlayer ? this.audioPlayer.getCurrentPlaybackTime() : null;
         
+        // 歌詞データを取得
+        const lyrics = this.lyricManager ? this.lyricManager.getAllLyrics() : null;
+        
         // 元波形の再生位置を表示
         if (this.audioPlayer && this.audioPlayer.isPlaying) {
             if (!this.audioPlayer.originalMuted) {
-                this.originalWaveformViewer.render(currentTime);
+                this.originalWaveformViewer.render(currentTime, lyrics);
             } else {
-                this.originalWaveformViewer.render(null);
+                this.originalWaveformViewer.render(null, lyrics);
             }
         } else {
-            this.originalWaveformViewer.render(null);
+            this.originalWaveformViewer.render(null, lyrics);
         }
     }
 
     startPlaybackAnimation() {
         const animate = () => {
             if (this.audioPlayer && this.audioPlayer.isPlaying) {
+                const currentTime = this.audioPlayer.getCurrentPlaybackTime();
+                
+                // 再生位置が表示範囲外の場合は、表示範囲内にスクロール
+                if (this.uiController && currentTime !== null) {
+                    this.uiController.scrollToPlaybackPosition(currentTime);
+                }
+                
                 this.drawWaveform();
                 // レベルメータを更新
                 if (this.uiController) {
