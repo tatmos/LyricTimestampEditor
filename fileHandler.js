@@ -186,6 +186,13 @@ class FileHandler {
             filename += '.srt';
         }
         
+        // 同名ファイルの上書き確認（ブラウザの制約により実際のファイル存在確認はできませんが、ユーザーに確認を取ります）
+        const confirmed = confirm(`ファイル "${filename}" を保存します。\n同名のファイルが既に存在する場合は上書きされます。\n\n続行しますか？`);
+        if (!confirmed) {
+            this.showStatus('保存をキャンセルしました', 'info');
+            return false;
+        }
+        
         Exporter.downloadSRT(lyrics, filename);
         this.showStatus('SRTファイルをダウンロードしました', 'success');
         return true;
@@ -211,6 +218,13 @@ class FileHandler {
         // 拡張子を追加
         if (!filename.toLowerCase().endsWith('.json')) {
             filename += '.json';
+        }
+        
+        // 同名ファイルの上書き確認（ブラウザの制約により実際のファイル存在確認はできませんが、ユーザーに確認を取ります）
+        const confirmed = confirm(`ファイル "${filename}" を保存します。\n同名のファイルが既に存在する場合は上書きされます。\n\n続行しますか？`);
+        if (!confirmed) {
+            this.showStatus('保存をキャンセルしました', 'info');
+            return false;
         }
         
         Exporter.downloadJSON(lyrics, filename);

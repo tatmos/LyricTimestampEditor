@@ -3,9 +3,11 @@ class UIController {
     constructor(editor) {
         this.editor = editor;
         this.fileHandler = new FileHandler(editor, this);
+        this.currentMode = 'add'; // 'add' or 'adjust'
         this.initializeElements();
         this.setupEventListeners();
         this.currentModalTime = null;
+        this.selectedLyricId = null; // 調整モードで選択した歌詞ID
         
         // ドラッグ処理用
         this.isDragging = false;
@@ -29,6 +31,10 @@ class UIController {
         this.importSrtInput = document.getElementById('import-srt-input');
         this.importJsonInput = document.getElementById('import-json-input');
         this.outputFilenameInput = document.getElementById('output-filename-input');
+        this.lyricsTableContainer = document.querySelector('.lyrics-table-container');
+        this.lyricPreview = document.getElementById('lyric-preview');
+        this.addModeBtn = document.getElementById('add-mode-btn');
+        this.adjustModeBtn = document.getElementById('adjust-mode-btn');
         
         // ズームコントロール
         this.zoomInBtn = document.getElementById('zoom-in-btn');
@@ -113,6 +119,14 @@ class UIController {
             });
         }
 
+        // モード選択ボタン
+        if (this.addModeBtn) {
+            this.addModeBtn.addEventListener('click', () => this.setMode('add'));
+        }
+        if (this.adjustModeBtn) {
+            this.adjustModeBtn.addEventListener('click', () => this.setMode('adjust'));
+        }
+
         // エクスポートボタン
         if (this.exportSrtBtn) {
             this.exportSrtBtn.addEventListener('click', () => this.fileHandler.exportSRT());
@@ -172,11 +186,15 @@ class UIController {
         
         // キーボードショートカット
         document.addEventListener('keydown', (e) => {
+            // ESCキーでモーダルを閉じる（モーダルが開いている場合）
+            if (e.key === 'Escape' && this.lyricModal && !this.lyricModal.classList.contains('hidden')) {
+                e.preventDefault();
+                this.closeLyricModal();
+                return;
+            }
+            
             const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
             if (isInput) {
-                if (e.key === 'Escape' && !this.lyricModal.classList.contains('hidden')) {
-                    this.closeLyricModal();
-                }
                 return;
             }
             
@@ -286,8 +304,8 @@ class UIController {
             this.editor.audioPlayer.stopScratch();
         }
 
-        // 再生中でない場合のみモーダルを開く
-        if (!this.editor.audioPlayer.isPlaying) {
+        // 追加モードの場合のみ、再生中でない場合にモーダルを開く
+        if (this.currentMode === 'add' && !this.editor.audioPlayer.isPlaying) {
             let targetTime = null;
             
             if (wasDragging) {
@@ -303,6 +321,19 @@ class UIController {
                 setTimeout(() => {
                     this.openLyricModal(targetTime);
                 }, 150);
+            }
+        } else if (this.currentMode === 'adjust' && !this.editor.audioPlayer.isPlaying) {
+            // 調整モードの場合、クリックした位置に再生位置を移動するだけ
+            let targetTime = null;
+            
+            if (wasDragging) {
+                targetTime = this.calculateTimeFromPosition(e, this.originalWaveform);
+            } else {
+                targetTime = this.dragStartTime;
+            }
+            
+            if (targetTime !== null && this.editor && this.editor.seekTo) {
+                this.editor.seekTo(targetTime);
             }
         }
 
@@ -442,14 +473,33 @@ class UIController {
         this.stopBtn.disabled = true;
         this.showStatus('停止しました', 'info');
         
-        // 停止時に現在の再生位置で歌詞追加モーダルを開く
-        if (currentTime !== null) {
+        // 追加モードの場合のみ、停止時に現在の再生位置で歌詞追加モーダルを開く
+        if (this.currentMode === 'add' && currentTime !== null) {
             // 最後にクリックした位置を更新
             this.editor.audioPlayer.setLastClickedTime(currentTime);
             // 少し待ってからモーダルを開く
             setTimeout(() => {
                 this.openLyricModal(currentTime);
             }, 100);
+        } else if (this.currentMode === 'adjust' && currentTime !== null) {
+            // 調整モードの場合、クリック位置を記録
+            this.editor.audioPlayer.setLastClickedTime(currentTime);
+            
+            // 選択した行があれば、その行の開始時刻を停止位置に更新
+            if (this.selectedLyricId !== null) {
+                const success = this.editor.lyricManager.updateLyric(this.selectedLyricId, { startTime: currentTime });
+                if (success) {
+                    // テーブルを更新
+                    this.updateLyricsTable();
+                    // 選択状態をクリア
+                    const selectedRow = this.lyricsTbody.querySelector('tr.selected');
+                    if (selectedRow) {
+                        selectedRow.classList.remove('selected');
+                    }
+                    this.selectedLyricId = null;
+                    this.showStatus(`開始時刻を ${currentTime.toFixed(2)} 秒に更新しました`, 'success');
+                }
+            }
         }
     }
 
@@ -542,9 +592,43 @@ class UIController {
         lyrics.forEach((lyric) => {
             const row = document.createElement('tr');
             row.dataset.lyricId = lyric.id;
+            
+            // 行をクリックしたときに再生位置をその歌詞の開始時刻に移動
+            row.addEventListener('click', (e) => {
+                // 入力フィールドやボタンをクリックした場合はシークしない
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA') {
+                    return;
+                }
+                
+                // 再生位置をその歌詞の開始時刻に移動
+                if (this.editor && this.editor.seekTo) {
+                    this.editor.seekTo(lyric.startTime);
+                    this.showStatus(`再生位置を ${lyric.startTime.toFixed(2)} 秒に移動しました`, 'info');
+                    
+                    // 調整モードの場合、選択した行を記録
+                    if (this.currentMode === 'adjust') {
+                        // 前の選択状態を解除
+                        const prevSelectedRow = this.lyricsTbody.querySelector('tr.selected');
+                        if (prevSelectedRow) {
+                            prevSelectedRow.classList.remove('selected');
+                        }
+                        
+                        // 新しい行を選択
+                        this.selectedLyricId = lyric.id;
+                        row.classList.add('selected');
+                        this.showStatus(`歌詞を選択しました。停止後に開始時刻が更新されます`, 'info');
+                    }
+                }
+            });
+            
+            // 行にホバー効果を追加（カーソルをポインターに）
+            row.style.cursor = 'pointer';
 
             // 開始時刻
             const startTimeCell = document.createElement('td');
+            const startTimeContainer = document.createElement('div');
+            startTimeContainer.className = 'time-adjust-container';
+            
             const startTimeInput = document.createElement('input');
             startTimeInput.type = 'number';
             startTimeInput.className = 'editable-time';
@@ -558,7 +642,39 @@ class UIController {
                     this.showStatus('開始時刻を更新しました', 'success');
                 }
             });
-            startTimeCell.appendChild(startTimeInput);
+            
+            // -0.1秒ボタン
+            const minusBtn = document.createElement('button');
+            minusBtn.className = 'time-adjust-btn time-adjust-minus';
+            minusBtn.textContent = '-0.1';
+            minusBtn.title = '開始時刻を0.1秒減らす';
+            minusBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 行のクリックイベントを防ぐ
+                const currentTime = parseFloat(startTimeInput.value);
+                const newTime = Math.max(0, currentTime - 0.1);
+                startTimeInput.value = newTime.toFixed(2);
+                this.editor.lyricManager.updateLyric(lyric.id, { startTime: newTime });
+                this.showStatus('開始時刻を0.1秒減らしました', 'success');
+            });
+            
+            // +0.1秒ボタン
+            const plusBtn = document.createElement('button');
+            plusBtn.className = 'time-adjust-btn time-adjust-plus';
+            plusBtn.textContent = '+0.1';
+            plusBtn.title = '開始時刻を0.1秒増やす';
+            plusBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 行のクリックイベントを防ぐ
+                const currentTime = parseFloat(startTimeInput.value);
+                const newTime = currentTime + 0.1;
+                startTimeInput.value = newTime.toFixed(2);
+                this.editor.lyricManager.updateLyric(lyric.id, { startTime: newTime });
+                this.showStatus('開始時刻を0.1秒増やしました', 'success');
+            });
+            
+            startTimeContainer.appendChild(minusBtn);
+            startTimeContainer.appendChild(startTimeInput);
+            startTimeContainer.appendChild(plusBtn);
+            startTimeCell.appendChild(startTimeContainer);
 
             // 内容
             const textCell = document.createElement('td');
@@ -595,7 +711,8 @@ class UIController {
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'delete-btn';
             deleteBtn.textContent = '削除';
-            deleteBtn.addEventListener('click', () => {
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 行のクリックイベントが発火しないようにする
                 if (confirm('この歌詞を削除しますか？')) {
                     this.editor.lyricManager.deleteLyric(lyric.id);
                     this.showStatus('歌詞を削除しました', 'success');
@@ -620,6 +737,96 @@ class UIController {
         }
     }
 
+    // プレビュー表示を更新
+    updateLyricPreview(currentTime) {
+        if (!this.lyricPreview) {
+            return;
+        }
+
+        // 現在の再生位置に対応する歌詞を取得
+        const currentLyric = this.editor.lyricManager.getLyricAtTime(currentTime);
+        
+        if (!currentLyric) {
+            // 歌詞が見つからない場合はプレースホルダーを表示
+            this.lyricPreview.innerHTML = '<p class="preview-placeholder">再生すると歌詞がここに表示されます</p>';
+            return;
+        }
+
+        // 歌詞テキストを表示
+        this.lyricPreview.innerHTML = `<p class="preview-text">${this.escapeHtml(currentLyric.text)}</p>`;
+    }
+
+    // HTMLエスケープ（XSS対策）
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 再生中の歌詞行を中央にスクロール
+    scrollToCurrentLyric(currentTime) {
+        if (!currentTime || currentTime === null || !this.lyricsTbody || !this.lyricsTableContainer) {
+            return;
+        }
+
+        // 現在の再生位置に対応する歌詞を取得
+        const currentLyric = this.editor.lyricManager.getLyricAtTime(currentTime);
+        if (!currentLyric) {
+            return;
+        }
+
+        // 対応する行を取得
+        const row = this.lyricsTbody.querySelector(`tr[data-lyric-id="${currentLyric.id}"]`);
+        if (!row) {
+            return;
+        }
+
+        // テーブルコンテナの高さとスクロール位置を取得
+        const containerHeight = this.lyricsTableContainer.clientHeight;
+        const containerScrollTop = this.lyricsTableContainer.scrollTop;
+        
+        // 行の位置を取得
+        const rowOffsetTop = row.offsetTop;
+        const rowHeight = row.offsetHeight;
+        
+        // 行の中央がコンテナの中央に来るようにスクロール位置を計算
+        const targetScrollTop = rowOffsetTop - (containerHeight / 2) + (rowHeight / 2);
+        
+        // スムーズにスクロール（現在の位置と離れている場合のみ）
+        const currentScrollTop = containerScrollTop;
+        const scrollDiff = Math.abs(targetScrollTop - currentScrollTop);
+        
+        // 一定以上の距離がある場合のみスクロール（ちらつきを防ぐ）
+        if (scrollDiff > 50) {
+            this.lyricsTableContainer.scrollTo({
+                top: targetScrollTop,
+                behavior: 'smooth'
+            });
+        }
+    }
+
+
+    // モードを設定
+    setMode(mode) {
+        if (mode !== 'add' && mode !== 'adjust') return;
+        
+        this.currentMode = mode;
+        
+        // ボタンのスタイルを更新
+        if (this.addModeBtn && this.adjustModeBtn) {
+            if (mode === 'add') {
+                this.addModeBtn.classList.add('btn-mode-active');
+                this.adjustModeBtn.classList.remove('btn-mode-active');
+            } else {
+                this.addModeBtn.classList.remove('btn-mode-active');
+                this.adjustModeBtn.classList.add('btn-mode-active');
+            }
+        }
+        
+        // モード名を表示
+        const modeName = mode === 'add' ? '追加モード' : '調整モード';
+        this.showStatus(`${modeName}に切り替えました`, 'info');
+    }
 
     enableControls() {
         this.playBtn.disabled = false;

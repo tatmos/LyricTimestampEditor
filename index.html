@@ -22,6 +22,11 @@
                 </label>
             </div>
 
+            <div class="mode-controls">
+                <button id="add-mode-btn" class="btn btn-mode btn-mode-active" data-mode="add">追加モード</button>
+                <button id="adjust-mode-btn" class="btn btn-mode" data-mode="adjust">調整モード</button>
+            </div>
+
             <div class="playback-controls">
                 <button id="play-btn" class="btn btn-play" disabled>▶ 再生</button>
                 <button id="stop-btn" class="btn btn-stop" disabled>■ 停止</button>
@@ -73,6 +78,12 @@
                     </div>
                 </div>
                 <div id="ruler-original" class="time-ruler"></div>
+            </div>
+        </div>
+
+        <div class="lyric-preview-section">
+            <div id="lyric-preview" class="lyric-preview">
+                <p class="preview-placeholder">再生すると歌詞がここに表示されます</p>
             </div>
         </div>
 

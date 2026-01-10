@@ -88,6 +88,10 @@ class LyricTimestampEditor {
                 // 再生位置が表示範囲外の場合は、表示範囲内にスクロール
                 if (this.uiController && currentTime !== null) {
                     this.uiController.scrollToPlaybackPosition(currentTime);
+                    // プレビュー表示を更新
+                    this.uiController.updateLyricPreview(currentTime);
+                    // 再生中の歌詞行を中央にスクロール
+                    this.uiController.scrollToCurrentLyric(currentTime);
                 }
                 
                 this.drawWaveform();
@@ -101,6 +105,8 @@ class LyricTimestampEditor {
                 // 再生が停止したらレベルメータをリセット
                 if (this.uiController) {
                     this.uiController.updateLevelMeters();
+                    // プレビュー表示をクリア
+                    this.uiController.updateLyricPreview(null);
                 }
             }
         };
