@@ -1003,6 +1003,22 @@ header h1 {
     box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.25);
 }
 
+.lyrics-table .sync-time-btn {
+    padding: 4px 12px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.lyrics-table .sync-time-btn:hover {
+    background: #218838;
+}
+
 .lyrics-table .delete-btn {
     padding: 4px 12px;
     background: #dc3545;
